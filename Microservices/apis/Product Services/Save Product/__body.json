@@ -1,6 +1,0 @@
-{
-  "$schema": "https://assets.requestly.com/local/v1.5.0/body.json",
-  "contentType": "raw",
-  "raw": "{\"name\":\"Laptop\",\"description\":\"A fast laptop\",\"price\":999.99,\"stock\":10}",
-  "rawContentType": "application/json"
-}

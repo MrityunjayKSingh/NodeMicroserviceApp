@@ -1,6 +1,0 @@
-{
-  "$schema": "https://assets.requestly.com/local/v1.5.0/body.json",
-  "contentType": "raw",
-  "raw": "{\"items\":[{\"productId\":1,\"quantity\":1,\"price\":999.99}]}",
-  "rawContentType": "application/json"
-}
