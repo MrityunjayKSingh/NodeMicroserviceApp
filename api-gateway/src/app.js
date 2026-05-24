@@ -2,7 +2,7 @@ require('dotenv').config();
 const express        = require('express');
 const rateLimiter    = require('./middleware/rateLimiter');
 const authMiddleware = require('./middleware/authMiddleware');
-const { authServiceProxy, productServiceProxy, orderServiceProxy } = require('./routes/proxy');
+const { authServiceProxy, productServiceProxy, orderServiceProxy,paymentServiceProxy } = require('./routes/proxy');
 
 const app = express();
 
@@ -18,7 +18,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth',     authServiceProxy);
 app.use('/api/products', authMiddleware, productServiceProxy);
 app.use('/api/orders',   authMiddleware, orderServiceProxy);
-
+app.use('/api/payments', authMiddleware, paymentServiceProxy);
 app.use((req, res) => {
   res.status(404).json({ message: `Route ${req.method} ${req.path} not found` });
 });

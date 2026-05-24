@@ -1,13 +1,20 @@
-const OrderModel          = require('../models/order.model');
-const { publishOrderCreated } = require('../kafka/producer');
+const axios    = require('axios');
+const OrderModel = require('../models/order.model');
+const { publishOrderCreated, publishOrderNotification } = require('../kafka/producer');
 
 const VALID_TRANSITIONS = {
-  pending:    ['confirmed', 'cancelled'],
-  confirmed:  ['processing', 'cancelled'],
-  processing: ['shipped', 'cancelled'],
-  shipped:    ['delivered'],
-  delivered:  [],
-  cancelled:  [],
+  pending_payment: ['cancelled'],
+  confirmed:       ['processing', 'cancelled'],
+  processing:      ['shipped', 'cancelled'],
+  shipped:         ['delivered'],
+  delivered:       [],
+  cancelled:       [],
+};
+
+const STATUS_NOTIFICATION_TYPE = {
+  cancelled: 'ORDER_CANCELLED',
+  shipped:   'ORDER_SHIPPED',
+  delivered: 'ORDER_DELIVERED',
 };
 
 const OrderController = {
@@ -26,7 +33,7 @@ const OrderController = {
         }
       }
 
-      const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
       const order = await OrderModel.create({
         userId,
@@ -35,12 +42,10 @@ const OrderController = {
         totalAmount: totalAmount.toFixed(2),
       });
 
-      // Publish to Kafka — Product Service will consume and reduce stock
-      await publishOrderCreated(order, items, email);
-
       return res.status(201).json({
-        message: 'Order placed successfully. Stock verification in progress.',
+        message: 'Order created. Proceed to payment.',
         order: { ...order, items },
+        nextStep: `POST /api/payments/initiate with { orderId: ${order.id}, amount: ${totalAmount.toFixed(2)} }`,
       });
     } catch (err) {
       console.error('Create order error:', err.message);
@@ -64,14 +69,11 @@ const OrderController = {
   async getById(req, res) {
     try {
       const order = await OrderModel.findById(req.params.id);
-      if (!order) {
-        return res.status(404).json({ message: 'Order not found' });
-      }
+      if (!order) return res.status(404).json({ message: 'Order not found' });
 
       if (String(order.user_id) !== String(req.user.userId) && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Forbidden' });
       }
-
       return res.status(200).json({ order });
     } catch (err) {
       console.error('getById error:', err.message);
@@ -96,14 +98,10 @@ const OrderController = {
       }
 
       const { status } = req.body;
-      if (!status) {
-        return res.status(400).json({ message: 'status is required' });
-      }
+      if (!status) return res.status(400).json({ message: 'status is required' });
 
       const order = await OrderModel.findById(req.params.id);
-      if (!order) {
-        return res.status(404).json({ message: 'Order not found' });
-      }
+      if (!order) return res.status(404).json({ message: 'Order not found' });
 
       const allowed = VALID_TRANSITIONS[order.status] || [];
       if (!allowed.includes(status)) {
@@ -113,6 +111,18 @@ const OrderController = {
       }
 
       const updated = await OrderModel.updateStatus(req.params.id, status);
+
+      const notificationType = STATUS_NOTIFICATION_TYPE[status];
+      if (notificationType && order.user_email) {
+        await publishOrderNotification({
+          orderId:   order.id,
+          userId:    order.user_id,
+          userEmail: order.user_email,
+          type:      notificationType,
+          message:   `Your order #${order.id} status updated to ${status}`,
+        });
+      }
+
       return res.status(200).json({ message: 'Order status updated', order: updated });
     } catch (err) {
       console.error('updateStatus error:', err.message);
@@ -123,9 +133,7 @@ const OrderController = {
   async cancel(req, res) {
     try {
       const order = await OrderModel.findById(req.params.id);
-      if (!order) {
-        return res.status(404).json({ message: 'Order not found' });
-      }
+      if (!order) return res.status(404).json({ message: 'Order not found' });
 
       if (String(order.user_id) !== String(req.user.userId) && req.user.role !== 'admin') {
         return res.status(403).json({ message: 'Forbidden' });
@@ -134,6 +142,36 @@ const OrderController = {
       const cancelled = await OrderModel.cancel(req.params.id);
       if (!cancelled) {
         return res.status(400).json({ message: 'Order cannot be cancelled — already shipped or delivered' });
+      }
+
+      // Trigger refund if order was confirmed (payment was made)
+      if (order.status === 'confirmed' || order.status === 'processing') {
+        try {
+          await axios.post(
+            `http://localhost:3004/payments/refund/${order.id}`,
+            {},
+            {
+              headers: {
+                'x-user-id':    String(req.user.userId),
+                'x-user-email': req.user.email,
+                'x-user-role':  req.user.role,
+              },
+              timeout: 5000,
+            }
+          );
+          console.log(`[ORDER] Refund triggered for order ${order.id}`);
+        } catch (refundErr) {
+          // Log but don't fail — order is already cancelled
+          console.error(`[ORDER] Refund call failed for order ${order.id}:`, refundErr.message);
+        }
+      } else if (order.user_email) {
+        await publishOrderNotification({
+          orderId:   order.id,
+          userId:    order.user_id,
+          userEmail: order.user_email,
+          type:      'ORDER_CANCELLED',
+          message:   `Your order #${order.id} has been cancelled`,
+        });
       }
 
       return res.status(200).json({ message: 'Order cancelled successfully', order: cancelled });

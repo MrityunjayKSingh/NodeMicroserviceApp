@@ -7,13 +7,30 @@ const OrderModel = {
         id           SERIAL PRIMARY KEY,
         user_id      INTEGER NOT NULL,
         user_email   VARCHAR(150),
-        status       VARCHAR(20) NOT NULL DEFAULT 'pending'
-                     CHECK (status IN ('pending','confirmed','processing','shipped','delivered','cancelled')),
+        status       VARCHAR(20) NOT NULL DEFAULT 'pending_payment'
+                     CHECK (status IN ('pending_payment','confirmed','processing','shipped','delivered','cancelled')),
         total_amount NUMERIC(10,2) NOT NULL,
         created_at   TIMESTAMP DEFAULT NOW(),
         updated_at   TIMESTAMP DEFAULT NOW()
       );
     `);
+
+    // Migrate existing rows first, then update constraint
+await pool.query(`
+  UPDATE orders SET status = 'confirmed'
+  WHERE status NOT IN ('pending_payment','confirmed','processing','shipped','delivered','cancelled');
+`);
+
+await pool.query(`
+  ALTER TABLE orders
+    DROP CONSTRAINT IF EXISTS orders_status_check;
+`);
+
+await pool.query(`
+  ALTER TABLE orders
+    ADD CONSTRAINT orders_status_check
+    CHECK (status IN ('pending_payment','confirmed','processing','shipped','delivered','cancelled'));
+`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS order_items (
@@ -34,8 +51,8 @@ const OrderModel = {
       await client.query('BEGIN');
 
       const orderResult = await client.query(
-        `INSERT INTO orders (user_id, user_email, total_amount)
-         VALUES ($1, $2, $3) RETURNING *`,
+        `INSERT INTO orders (user_id, user_email, total_amount, status)
+         VALUES ($1, $2, $3, 'pending_payment') RETURNING *`,
         [userId, userEmail, totalAmount]
       );
       const order = orderResult.rows[0];
@@ -62,16 +79,13 @@ const OrderModel = {
     const result = await pool.query(
       `SELECT o.*, json_agg(
          json_build_object(
-           'id', oi.id,
-           'productId', oi.product_id,
-           'quantity', oi.quantity,
-           'price', oi.price
+           'id', oi.id, 'productId', oi.product_id,
+           'quantity', oi.quantity, 'price', oi.price
          )
        ) AS items
        FROM orders o
        LEFT JOIN order_items oi ON o.id = oi.order_id
-       GROUP BY o.id
-       ORDER BY o.created_at DESC`
+       GROUP BY o.id ORDER BY o.created_at DESC`
     );
     return result.rows;
   },
@@ -80,16 +94,13 @@ const OrderModel = {
     const result = await pool.query(
       `SELECT o.*, json_agg(
          json_build_object(
-           'id', oi.id,
-           'productId', oi.product_id,
-           'quantity', oi.quantity,
-           'price', oi.price
+           'id', oi.id, 'productId', oi.product_id,
+           'quantity', oi.quantity, 'price', oi.price
          )
        ) AS items
        FROM orders o
        LEFT JOIN order_items oi ON o.id = oi.order_id
-       WHERE o.id = $1
-       GROUP BY o.id`,
+       WHERE o.id = $1 GROUP BY o.id`,
       [id]
     );
     return result.rows[0] || null;
@@ -99,17 +110,14 @@ const OrderModel = {
     const result = await pool.query(
       `SELECT o.*, json_agg(
          json_build_object(
-           'id', oi.id,
-           'productId', oi.product_id,
-           'quantity', oi.quantity,
-           'price', oi.price
+           'id', oi.id, 'productId', oi.product_id,
+           'quantity', oi.quantity, 'price', oi.price
          )
        ) AS items
        FROM orders o
        LEFT JOIN order_items oi ON o.id = oi.order_id
        WHERE o.user_id = $1
-       GROUP BY o.id
-       ORDER BY o.created_at DESC`,
+       GROUP BY o.id ORDER BY o.created_at DESC`,
       [userId]
     );
     return result.rows;
@@ -117,10 +125,8 @@ const OrderModel = {
 
   async updateStatus(id, status) {
     const result = await pool.query(
-      `UPDATE orders
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING *`,
+      `UPDATE orders SET status = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
       [status, id]
     );
     return result.rows[0] || null;
@@ -128,10 +134,8 @@ const OrderModel = {
 
   async cancel(id) {
     const result = await pool.query(
-      `UPDATE orders
-       SET status = 'cancelled', updated_at = NOW()
-       WHERE id = $1
-         AND status NOT IN ('shipped', 'delivered')
+      `UPDATE orders SET status = 'cancelled', updated_at = NOW()
+       WHERE id = $1 AND status NOT IN ('shipped','delivered')
        RETURNING *`,
       [id]
     );

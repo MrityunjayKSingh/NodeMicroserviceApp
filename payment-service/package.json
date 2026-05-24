@@ -1,18 +1,18 @@
 {
-  "name": "order-service",
+  "name": "payment-service",
   "version": "1.0.0",
-  "description": "Order Microservice with Kafka",
+  "description": "Payment Microservice with Razorpay and Kafka",
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon src/app.js"
   },
   "dependencies": {
-    "axios": "^1.16.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "kafkajs": "^2.2.4",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "razorpay": "^2.9.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

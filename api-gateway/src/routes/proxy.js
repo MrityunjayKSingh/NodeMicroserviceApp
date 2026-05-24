@@ -18,4 +18,10 @@ const orderServiceProxy = createProxyMiddleware({
   pathRewrite: { '^/api/orders': '/orders' },
 });
 
-module.exports = { authServiceProxy, productServiceProxy, orderServiceProxy };
+const paymentServiceProxy = createProxyMiddleware({
+  target: 'http://localhost:3004',
+  changeOrigin: true,
+  pathRewrite: { '^/api/payments': '/payments' },
+});
+
+module.exports = { authServiceProxy, productServiceProxy, orderServiceProxy, paymentServiceProxy };
