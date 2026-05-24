@@ -7,7 +7,7 @@ const pool = new Pool({
 });
 
 pool.on('connect', () => {
-  console.log('Auth Service connected to Neon PostgreSQL');
+  console.log('Product Service connected to Neon PostgreSQL');
 });
 
 pool.on('error', (err) => {
