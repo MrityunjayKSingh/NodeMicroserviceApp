@@ -1,0 +1,19 @@
+{
+  "body": "{\"message\":\"User registered successfully\",\"user\":{\"id\":3,\"name\":\"John Doe3\",\"email\":\"john3@example.com\",\"role\":\"user\",\"created_at\":\"2026-05-21T03:13:10.028Z\"}}",
+  "headers": {
+    "x-powered-by": "Express",
+    "ratelimit-policy": "100;w=900",
+    "ratelimit-limit": "100",
+    "ratelimit-remaining": "98",
+    "ratelimit-reset": "879",
+    "content-type": "application/json; charset=utf-8",
+    "content-length": "159",
+    "etag": "W/\"9f-CrO8+be1gz4PJW1VrSX9kDkeSEQ\"",
+    "date": "Thu, 21 May 2026 08:43:09 GMT",
+    "connection": "close"
+  },
+  "status": 201,
+  "statusText": "Created",
+  "time": 674,
+  "size": 159
+}
