@@ -1,13 +1,78 @@
-# Node.js Microservices — Auth + Product + API Gateway (Neon DB)
+# MK Store — Node.js Microservices
 
+A production-style e-commerce backend built with Node.js microservices architecture. Each service is independently deployable, communicates via REST (synchronous) or Apache Kafka (asynchronous), and uses Neon PostgreSQL as its database.
 
+---
 
-A production-style microservices setup with:
-- **Auth Service** (port 3001) — register, login, JWT verification
-- **Product Service** (port 3002) — full CRUD, protected via gateway headers
-- **API Gateway** (port 3000) — single entry point, rate limiting, token verification, request proxying
+## Architecture Overview
 
-All traffic goes through port 3000 only. Auth and Product services bind to `127.0.0.1`.
+```
+                          ┌─────────────────────────────┐
+                          │        Client / Postman      │
+                          └────────────┬────────────────┘
+                                       │ HTTP
+                                       ▼
+                          ┌─────────────────────────────┐
+                          │       API Gateway (:3000)    │
+                          │  Rate limiting · JWT verify  │
+                          │  Request proxying            │
+                          └──┬──────┬──────┬──────┬─────┘
+                             │      │      │      │
+               ┌─────────────┘      │      │      └──────────────┐
+               │                    │      │                     │
+               ▼                    ▼      ▼                     ▼
+        Auth Service        Product Svc  Order Svc        Payment Svc
+          (:3001)            (:3002)     (:3003)            (:3004)
+        Neon auth_db       Neon prod_db Neon order_db    Neon payment_db
+                                │           │                    │
+                                │           │                    │
+                                └─────┬─────┘────────────────────┘
+                                      │ Apache Kafka (Aiven)
+                          ┌───────────┴────────────────┐
+                          │      Kafka Topics           │
+                          │  order.created             │
+                          │  stock.updated             │
+                          │  payment.success           │
+                          │  payment.failed            │
+                          │  order.notification        │
+                          └───────────┬────────────────┘
+                                      │
+                                      ▼
+                          ┌─────────────────────────────┐
+                          │    Notification Service      │
+                          │  Kafka consumer only         │
+                          │  SendGrid email delivery     │
+                          └─────────────────────────────┘
+```
+
+---
+
+## Services
+
+| Service | Port | Language | Database | Description |
+|---|---|---|---|---|
+| API Gateway | 3000 | Node.js | — | Single entry point, rate limiting, auth proxy |
+| Auth Service | 3001 | Node.js | Neon auth_db | Register, login, JWT verification |
+| Product Service | 3002 | Node.js | Neon product_db | Product CRUD, image upload, stock management |
+| Order Service | 3003 | Node.js | Neon order_db | Order lifecycle management |
+| Payment Service | 3004 | Node.js | Neon payment_db | Razorpay integration, refunds |
+| Notification Service | — | Node.js | — | Email notifications via SendGrid |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js v18 LTS |
+| Framework | Express.js |
+| Database | Neon (Serverless PostgreSQL) |
+| Message Broker | Apache Kafka (Aiven) |
+| Auth | JWT + bcryptjs |
+| Image Storage | Cloudinary |
+| Payment | Razorpay |
+| Email | SendGrid |
+| API Gateway | http-proxy-middleware v2 |
 
 ---
 
@@ -15,45 +80,83 @@ All traffic goes through port 3000 only. Auth and Product services bind to `127.
 
 ```
 microservices/
+├── certs/                        ← Aiven Kafka TLS certificates
+│   ├── ca.pem
+│   ├── service.key
+│   └── service.cert
 ├── api-gateway/
 │   ├── src/
 │   │   ├── middleware/
-│   │   │   ├── authMiddleware.js   ← calls Auth Service to verify token
-│   │   │   └── rateLimiter.js      ← 100 req / 15 min per IP
+│   │   │   ├── authMiddleware.js
+│   │   │   └── rateLimiter.js
 │   │   ├── routes/
-│   │   │   └── proxy.js            ← http-proxy-middleware config
+│   │   │   └── proxy.js
 │   │   └── app.js
-│   ├── .env.example
+│   ├── .env
 │   └── package.json
-│
 ├── auth-service/
 │   ├── src/
-│   │   ├── config/
-│   │   │   └── db.js               ← Neon PostgreSQL pool
-│   │   ├── models/
-│   │   │   └── user.model.js
-│   │   ├── controllers/
-│   │   │   └── auth.controller.js
-│   │   ├── routes/
-│   │   │   └── auth.routes.js
+│   │   ├── config/db.js
+│   │   ├── models/user.model.js
+│   │   ├── controllers/auth.controller.js
+│   │   ├── routes/auth.routes.js
 │   │   └── app.js
-│   ├── .env.example
+│   ├── .env
 │   └── package.json
-│
-└── product-service/
+├── product-service/
+│   ├── src/
+│   │   ├── config/
+│   │   │   ├── db.js
+│   │   │   ├── kafka.js
+│   │   │   └── cloudinary.js
+│   │   ├── models/product.model.js
+│   │   ├── controllers/product.controller.js
+│   │   ├── middleware/
+│   │   │   ├── auth.middleware.js
+│   │   │   └── upload.middleware.js
+│   │   ├── kafka/
+│   │   │   ├── producer.js
+│   │   │   └── consumer.js
+│   │   ├── routes/product.routes.js
+│   │   └── app.js
+│   ├── .env
+│   └── package.json
+├── order-service/
+│   ├── src/
+│   │   ├── config/
+│   │   │   ├── db.js
+│   │   │   └── kafka.js
+│   │   ├── models/order.model.js
+│   │   ├── controllers/order.controller.js
+│   │   ├── middleware/auth.middleware.js
+│   │   ├── kafka/
+│   │   │   ├── producer.js
+│   │   │   └── consumer.js
+│   │   ├── routes/order.routes.js
+│   │   └── app.js
+│   ├── .env
+│   └── package.json
+├── payment-service/
+│   ├── src/
+│   │   ├── config/
+│   │   │   ├── db.js
+│   │   │   ├── kafka.js
+│   │   │   └── razorpay.js
+│   │   ├── models/payment.model.js
+│   │   ├── controllers/payment.controller.js
+│   │   ├── middleware/auth.middleware.js
+│   │   ├── kafka/producer.js
+│   │   ├── routes/payment.routes.js
+│   │   └── app.js
+│   ├── .env
+│   └── package.json
+└── notification-service/
     ├── src/
-    │   ├── config/
-    │   │   └── db.js               ← Neon PostgreSQL pool
-    │   ├── models/
-    │   │   └── product.model.js
-    │   ├── controllers/
-    │   │   └── product.controller.js
-    │   ├── middleware/
-    │   │   └── auth.middleware.js
-    │   ├── routes/
-    │   │   └── product.routes.js
+    │   ├── config/kafka.js
+    │   ├── kafka/consumer.js
+    │   ├── email.service.js
     │   └── app.js
-    ├── .env.example
+    ├── .env
     └── package.json
 ```
 
@@ -61,249 +164,269 @@ microservices/
 
 ## Prerequisites
 
-- Node.js >= 18
-- A free Neon account at https://neon.tech
+- Node.js v18 LTS — [nodejs.org](https://nodejs.org)
+- Neon account — [neon.tech](https://neon.tech)
+- Aiven account — [aiven.io](https://aiven.io)
+- Cloudinary account — [cloudinary.com](https://cloudinary.com)
+- Razorpay account — [razorpay.com](https://razorpay.com)
+- SendGrid account — [sendgrid.com](https://sendgrid.com)
 
 ---
 
-## Step 1 — Create Neon Databases
+## External Services Setup
 
-1. Go to https://neon.tech and sign up / log in
-2. Create a **new project** (e.g. `microservices`)
-3. Inside the project, create **two databases**:
-   - `auth_db`
-   - `product_db`
+### 1. Neon PostgreSQL — Create 4 databases
+Go to your Neon project → Databases tab → create:
+- `auth_db`
+- `product_db`
+- `order_db`
+- `payment_db`
 
-   You can create extra databases from the Neon dashboard → your project → **Databases** tab → **New Database**.
+Copy the connection string for each from the Connection Details panel.
 
-4. For each database, go to **Connection Details**, select the database name from the dropdown, and copy the connection string. It looks like:
+### 2. Aiven Kafka — Create cluster and topics
+Create a Kafka cluster, then create these 5 topics:
+- `order.created`
+- `stock.updated`
+- `payment.success`
+- `payment.failed`
+- `order.notification`
 
-```
-postgresql://username:password@ep-cool-name-123456.us-east-2.aws.neon.tech/auth_db?sslmode=require
-```
+Download the 3 cert files (`ca.pem`, `service.key`, `service.cert`) and place in `microservices/certs/`.
 
-Tables (`users`, `products`) are created automatically when services start.
+### 3. Cloudinary
+Sign up → Dashboard → copy Cloud Name, API Key, API Secret.
 
----
+### 4. Razorpay
+Sign up → Settings → API Keys → Generate Test Key → copy Key ID and Key Secret.
 
-## Step 2 — Set Up Auth Service
-
-```bash
-cd auth-service
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-PORT=3001
-DATABASE_URL=postgresql://username:password@ep-xxxx.us-east-2.aws.neon.tech/auth_db?sslmode=require
-JWT_SECRET=any_long_random_string_here
-JWT_EXPIRES_IN=1d
-```
-
-```bash
-npm install
-npm start
-```
-
-Expected output:
-```
-Auth Service connected to Neon PostgreSQL
-Users table ready
-Auth Service running on http://127.0.0.1:3001
-```
+### 5. SendGrid
+Sign up → Settings → API Keys → Create API Key.
+Settings → Sender Authentication → verify your sender email.
 
 ---
 
-## Step 3 — Set Up Product Service
+## Installation
+
+Run `npm install` in each service folder:
 
 ```bash
-cd product-service
-cp .env.example .env
-```
-
-Edit `.env`:
-
-```env
-PORT=3002
-DATABASE_URL=postgresql://username:password@ep-xxxx.us-east-2.aws.neon.tech/product_db?sslmode=require
-```
-
-```bash
-npm install
-npm start
-```
-
-Expected output:
-```
-Product Service connected to Neon PostgreSQL
-Products table ready
-Product Service running on http://127.0.0.1:3002
+cd auth-service        && npm install && cd ..
+cd product-service     && npm install && cd ..
+cd order-service       && npm install && cd ..
+cd payment-service     && npm install && cd ..
+cd notification-service && npm install && cd ..
+cd api-gateway         && npm install && cd ..
 ```
 
 ---
 
-## Step 4 — Set Up API Gateway
+## Environment Setup
+
+Copy `.env.example` to `.env` in each service and fill in your credentials.
+See each service's own README for the exact variables required.
+
+---
+
+## Running All Services
+
+Start each in a separate terminal in this order:
 
 ```bash
-cd api-gateway
-cp .env.example .env
-```
+# Terminal 1
+cd auth-service && npm start
 
-`.env`:
-```env
-PORT=3000
-AUTH_SERVICE_URL=http://127.0.0.1:3001
-PRODUCT_SERVICE_URL=http://127.0.0.1:3002
-```
+# Terminal 2
+cd product-service && npm start
 
-```bash
-npm install
-npm start
-```
+# Terminal 3
+cd order-service && npm start
 
-Expected output:
-```
-API Gateway running on http://localhost:3000
-  → Auth Service    : http://127.0.0.1:3001
-  → Product Service : http://127.0.0.1:3002
+# Terminal 4
+cd payment-service && npm start
+
+# Terminal 5
+cd notification-service && npm start
+
+# Terminal 6
+cd api-gateway && npm start
 ```
 
 ---
 
-## Step 5 — Test With curl
+## Kafka Event Flow
 
-**All requests go to port 3000 (the gateway).**
+```
+1. Client → POST /api/orders
+   Order Service creates order (status: pending_payment)
 
-### Register a user
+2. Client → POST /api/payments/initiate
+   Payment Service creates Razorpay order → returns razorpay_order_id
+
+3. Client → POST /api/payments/verify  (after Razorpay checkout)
+   Payment Service verifies signature
+   → publishes: payment.success
+
+4. Order Service consumes payment.success
+   → updates order: pending_payment → confirmed
+   → publishes: order.created
+
+5. Product Service consumes order.created
+   → reduces stock for each item
+   → publishes: stock.updated
+   → publishes: order.notification (ORDER_CONFIRMED)
+
+6. Order Service consumes stock.updated
+   → logs stock update confirmation
+
+7. Notification Service consumes order.notification
+   → sends ORDER_CONFIRMED email via SendGrid
+```
+
+---
+
+## Complete API Reference
+
+### Auth Routes — No token required
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| POST | /api/auth/register | name, email, password | Register new user |
+| POST | /api/auth/login | email, password | Login, returns JWT |
+| GET | /api/auth/profile | — | Get logged-in user profile |
+
+### Product Routes — Bearer token required
+
+| Method | Endpoint | Body / Params | Description |
+|---|---|---|---|
+| GET | /api/products | — | Get all products |
+| GET | /api/products/mine | — | Get my products |
+| GET | /api/products/:id | — | Get product by ID |
+| POST | /api/products | multipart/form-data | Create product with optional image |
+| PUT | /api/products/:id | multipart/form-data | Update product |
+| DELETE | /api/products/:id | — | Delete product |
+
+### Order Routes — Bearer token required
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| POST | /api/orders | items[] | Place order (status: pending_payment) |
+| GET | /api/orders | — | All orders (admin only) |
+| GET | /api/orders/mine | — | My orders |
+| GET | /api/orders/:id | — | Single order with items |
+| PATCH | /api/orders/:id/status | status | Update status (admin only) |
+| DELETE | /api/orders/:id | — | Cancel order (triggers refund) |
+
+### Payment Routes — Bearer token required
+
+| Method | Endpoint | Body | Description |
+|---|---|---|---|
+| POST | /api/payments/initiate | orderId, amount | Create Razorpay order |
+| POST | /api/payments/verify | razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId | Verify payment |
+| POST | /api/payments/refund/:orderId | — | Refund payment |
+| GET | /api/payments/order/:orderId | — | Get payment by order |
+
+---
+
+## Order Status Transitions
+
+```
+pending_payment → confirmed (after payment.success)
+confirmed       → processing, cancelled
+processing      → shipped, cancelled
+shipped         → delivered
+delivered       → (final state)
+cancelled       → (final state, refund triggered if was confirmed)
+```
+
+---
+
+## Email Notifications
+
+Emails are sent automatically for:
+
+| Event | Trigger |
+|---|---|
+| ORDER_CONFIRMED | Payment verified successfully |
+| ORDER_CANCELLED | Order cancelled (includes refund amount if applicable) |
+| ORDER_SHIPPED | Admin updates status to shipped |
+| ORDER_DELIVERED | Admin updates status to delivered |
+| PAYMENT_FAILED | Payment signature verification fails |
+
+---
+
+## End-to-End Test Flow
 
 ```bash
+# 1. Register
 curl -X POST http://localhost:3000/api/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name":"John Doe","email":"john@example.com","password":"secret123"}'
-```
 
-### Login and get a token
-
-```bash
+# 2. Login — copy the token
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"john@example.com","password":"secret123"}'
-```
 
-Copy the `token` from the response.
-
-### Create a product
-
-```bash
+# 3. Create a product (form-data in Postman — set body to multipart/form-data)
 curl -X POST http://localhost:3000/api/products \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "name=Laptop" -F "price=999.99" -F "stock=10" \
+  -F "description=Fast laptop" -F "image=@/path/to/image.jpg"
+
+# 4. Place an order
+curl -X POST http://localhost:3000/api/orders \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  -d '{"name":"Laptop","description":"A fast laptop","price":999.99,"stock":10}'
-```
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"items":[{"productId":1,"quantity":1,"price":999.99}]}'
 
-### Get all products
-
-```bash
-curl http://localhost:3000/api/products \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-### Get a single product
-
-```bash
-curl http://localhost:3000/api/products/1 \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-### Get your own products
-
-```bash
-curl http://localhost:3000/api/products/mine \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-### Update a product
-
-```bash
-curl -X PUT http://localhost:3000/api/products/1 \
+# 5. Initiate payment — copy razorpayOrderId
+curl -X POST http://localhost:3000/api/payments/initiate \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  -d '{"price":899.99,"stock":8}'
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"orderId":1,"amount":999.99}'
+
+# 6. Verify payment (use Razorpay test credentials)
+curl -X POST http://localhost:3000/api/payments/verify \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"razorpay_order_id":"order_xxx","razorpay_payment_id":"pay_xxx","razorpay_signature":"xxx","orderId":1}'
+
+# 7. Check order status (should be confirmed)
+curl http://localhost:3000/api/orders/1 \
+  -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
-### Delete a product
+---
+
+## Health Checks
 
 ```bash
-curl -X DELETE http://localhost:3000/api/products/1 \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-```
-
-### Health checks
-
-```bash
-curl http://localhost:3000/health
-curl http://localhost:3001/health
-curl http://localhost:3002/health
+curl http://localhost:3000/health   # API Gateway
+curl http://localhost:3001/health   # Auth Service
+curl http://localhost:3002/health   # Product Service
+curl http://localhost:3003/health   # Order Service
+curl http://localhost:3004/health   # Payment Service
 ```
 
 ---
 
-## API Reference
+## Make a User Admin
 
-| Method | Route | Auth | Description |
-|--------|-------|------|-------------|
-| POST | /api/auth/register | No | Register new user |
-| POST | /api/auth/login | No | Login, returns JWT |
-| GET | /api/auth/profile | Yes | Get logged-in user profile |
-| GET | /api/products | Yes | Get all products |
-| GET | /api/products/mine | Yes | Products you created |
-| GET | /api/products/:id | Yes | Get product by ID |
-| POST | /api/products | Yes | Create product |
-| PUT | /api/products/:id | Yes | Update (owner or admin only) |
-| DELETE | /api/products/:id | Yes | Delete (owner or admin only) |
-
----
-
-## How It Works
-
-```
-Client
-  │
-  ▼
-API Gateway (:3000)
-  ├── Rate limiter (100 req / 15 min per IP)
-  ├── Auth Middleware
-  │     └── POST http://127.0.0.1:3001/auth/verify
-  │           ├── valid   → injects x-user-id, x-user-email, x-user-role headers
-  │           └── invalid → returns 401
-  │
-  ├── /api/auth/*     → proxy → Auth Service (:3001) → Neon auth_db
-  └── /api/products/* → proxy → Product Service (:3002) → Neon product_db
-```
-
----
-
-## Admin Role
-
-Update a user's role directly in Neon SQL Editor:
-
+In Neon SQL Editor (auth_db):
 ```sql
-UPDATE users SET role = 'admin' WHERE email = 'admin@example.com';
+UPDATE users SET role = 'admin' WHERE email = 'your@email.com';
 ```
-
-Admins can update and delete any product, not just their own.
 
 ---
 
 ## Common Errors
 
 | Error | Cause | Fix |
-|-------|-------|-----|
-| `SSL connection required` | Missing SSL config | Already handled — make sure `?sslmode=require` is in your DATABASE_URL |
-| `password authentication failed` | Wrong credentials in DATABASE_URL | Copy connection string fresh from Neon dashboard |
-| `database does not exist` | Wrong DB name in connection string | Create both `auth_db` and `product_db` in Neon dashboard |
-| `ECONNREFUSED` on gateway | Auth or Product service not running | Start all three services first |
-| `401 Authorization header missing` | Forgot to send Bearer token | Add Authorization header |
-| `503 Auth Service unavailable` | Auth Service is down | Restart auth-service |
+|---|---|---|
+| `unable to read ca file` | Cert path wrong | Ensure certs/ folder has ca.pem, service.key, service.cert |
+| `ECONNREFUSED` | Service not running | Start all services before gateway |
+| `name and price are required` | Body not parsed | Use multipart/form-data in Postman for product routes |
+| `check constraint violated` | Old DB rows incompatible | Run the SQL migration in Neon dashboard |
+| `String or address expected for from` | SendGrid env vars missing | Add SENDGRID_* vars to notification-service .env |
+| `Payment verification failed` | Wrong signature | Use correct Razorpay test credentials |
