@@ -1,4 +1,5 @@
 const axios = require('axios');
+require('dotenv').config();
 
 const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -9,8 +10,10 @@ const authMiddleware = async (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
+    const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001';
+
     const response = await axios.post(
-      'http://localhost:3001/auth/verify',
+      `${AUTH_SERVICE_URL}/auth/verify`,
       {},
       {
         headers: { Authorization: `Bearer ${token}` },

@@ -16,6 +16,7 @@ const STATUS_NOTIFICATION_TYPE = {
   shipped:   'ORDER_SHIPPED',
   delivered: 'ORDER_DELIVERED',
 };
+const PAYMENT_SERVICE_URL = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3004';
 
 const OrderController = {
   async create(req, res) {
@@ -148,7 +149,7 @@ const OrderController = {
       if (order.status === 'confirmed' || order.status === 'processing') {
         try {
           await axios.post(
-            `http://localhost:3004/payments/refund/${order.id}`,
+            `${PAYMENT_SERVICE_URL}/payments/refund/${order.id}`,
             {},
             {
               headers: {
