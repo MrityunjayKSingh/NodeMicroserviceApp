@@ -41,7 +41,7 @@ const PORT = process.env.PORT || 3002;
   try {
     await ProductModel.createTable();
     await startConsumer();          // ← this line must be there
-    app.listen(PORT, () => {
+    app.listen(PORT,'0.0.0.0', () => {
       console.log(`Product Service running on http://localhost:${PORT}`);
     });
   } catch (err) {

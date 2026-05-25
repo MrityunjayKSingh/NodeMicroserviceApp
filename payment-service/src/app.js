@@ -27,7 +27,7 @@ const PORT = process.env.PORT || 3004;
 
 PaymentModel.createTable()
   .then(() => {
-    app.listen(PORT, () => {
+    app.listen(PORT,'0.0.0.0', () => {
       console.log(`Payment Service running on http://localhost:${PORT}`);
     });
   })
