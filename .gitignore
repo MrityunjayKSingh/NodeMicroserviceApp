@@ -28,6 +28,7 @@ cert/
 certs/
 ssl/
 secrets/
+task-definitions
 keys/
 **/cert/
 **/certs/
